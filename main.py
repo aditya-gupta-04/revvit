@@ -12,7 +12,6 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.cuda.amp import GradScaler
 
-import wandb
 from fast_rev import FastRevViT
 from rev import RevViT
 from revmvit import ReversibleMViT as RevMViT
@@ -224,8 +223,6 @@ def test(epoch):
         return 100.0 * correct / total, test_loss / (batch_idx + 1)
 
 
-wandb.init(project="minrev")
-
 import random
 
 import numpy as np
@@ -239,14 +236,9 @@ random.seed(seed)
 for epoch in range(args.epochs):
     train_acc, train_loss = train(epoch)
     test_acc, test_loss = test(epoch)
-    wandb.log(
-        {
-            "train_acc": train_acc,
-            "train_loss": train_loss,
-            "test_acc": test_acc,
-            "test_loss": test_loss,
-        }
-    )
+
+    # Add logging/plot code if needed
+        
     scheduler.step(epoch - 1)
 
 # based on https://github.com/kentaroy47/vision-transformers-cifar10
