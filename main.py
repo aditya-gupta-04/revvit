@@ -16,6 +16,11 @@ from fast_rev import FastRevViT
 from rev import RevViT
 from revmvit import ReversibleMViT as RevMViT
 from revswin import ReversibleSwinTransformer as RevSwin
+from vit import ViT_OG
+
+import timm
+import time
+import numpy as np
 
 parser = argparse.ArgumentParser(description="PyTorch CIFAR10 Training")
 
@@ -155,6 +160,22 @@ elif args.model == "mvit":
         adaptive_window_size=16,
         fast_backprop=args.pareprop,
     )
+elif args.model == "vit-og":
+    model = ViT_OG(
+        embed_dim=args.embed_dim,
+        n_head=args.n_head,
+        depth=args.depth,
+        patch_size=args.patch_size,
+        image_size=args.image_size,
+        num_classes=args.num_classes,
+        enable_amp=args.amp,
+    )
+elif args.model == "vit-small":
+    print("Warning : vit-small is not configured to its native 224x224 image and 16x16 patch size")
+    print("Warning : vit-small modified to not use class tokens and classifier head is uses average pool of output sequence")
+    model = timm.create_model("vit_small_patch16_224", pretrained=False, 
+                                num_classes=args.num_classes, img_size=args.image_size, patch_size=args.patch_size,
+                                class_token=False, global_pool='avg')
 else:
     raise NotImplementedError(f"Model {args.model} not supported.")
 model = model.to(device)
@@ -177,7 +198,16 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
+
+    torch.cuda.reset_peak_memory_stats()
+    start_time = time.perf_counter()
+
+    batch_times = []
     for batch_idx, (inputs, targets) in enumerate(trainloader):
+        start_event_batch = torch.cuda.Event(enable_timing=True)
+        end_event_batch = torch.cuda.Event(enable_timing=True)
+        start_event_batch.record()
+
         # We do not need to specify AMP autocast in forward pass here since
         # that is taken care of already in the forward of individual modules.
         inputs, targets = inputs.to(device), targets.to(device)
@@ -196,19 +226,45 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
+        end_event_batch.record()
+
+        torch.cuda.synchronize()  # Ensures all CUDA ops finish before measuring time
+        batch_times.append(start_event_batch.elapsed_time(end_event_batch))  
+        
+    end_time = time.perf_counter() 
+
+    print(f"Batch Shape : {next(iter(trainloader))[0].shape}")
+
+    peak_memory = torch.cuda.max_memory_allocated()  
+    peak_reserved = torch.cuda.max_memory_reserved()
+    print(f"Peak Allocated Memory : {peak_memory/1e6}MB | Peak Reserved Memory : {peak_reserved/1e6}MB")
+
+    epoch_time = end_time - start_time
+    print(f"Mean Batch Time : {np.mean(batch_times):.4f}ms | Std dev in Batch Time : {np.std(batch_times):.4f}ms")
+    print(f"Epoch time : {epoch_time:.4f} seconds")
+
     print(f"Training Accuracy:{100.*correct/total: 0.2f}")
     print(f"Training Loss:{train_loss/(batch_idx+1): 0.3f}")
     return 100.0 * correct / total, train_loss / (batch_idx + 1)
 
 
 def test(epoch):
+    print("\nTesting Epoch: %d" % epoch)
     model.eval()
     test_loss = 0
     correct = 0
     total = 0
-    print("\nTesting Epoch: %d" % epoch)
+
+    torch.cuda.reset_peak_memory_stats()
+    start_time = time.perf_counter()
+
+    batch_times = []
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
+            start_event_batch = torch.cuda.Event(enable_timing=True)
+            end_event_batch = torch.cuda.Event(enable_timing=True)
+            start_event_batch.record()
+
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
             loss = criterion(outputs, targets)
@@ -218,6 +274,23 @@ def test(epoch):
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
+            end_event_batch.record()
+
+            torch.cuda.synchronize()  # Ensures all CUDA ops finish before measuring time
+            batch_times.append(start_event_batch.elapsed_time(end_event_batch))  
+
+        end_time = time.perf_counter() 
+
+        print(f"Batch Shape : {next(iter(testloader))[0].shape}")
+
+        peak_memory = torch.cuda.max_memory_allocated()  
+        peak_reserved = torch.cuda.max_memory_reserved()
+        print(f"Peak Allocated Memory : {peak_memory/1e6}MB | Peak Reserved Memory : {peak_reserved/1e6}MB")
+
+        epoch_time = end_time - start_time
+        print(f"Mean Batch Time : {np.mean(batch_times):.4f}ms | Std dev in Batch Time : {np.std(batch_times):.4f}ms")
+        print(f"Epoch time : {epoch_time:.4f} seconds")
+        
         print(f"Test Accuracy:{100.*correct/total: 0.2f}")
         print(f"Test Loss:{test_loss/(batch_idx+1): 0.3f}")
         return 100.0 * correct / total, test_loss / (batch_idx + 1)
