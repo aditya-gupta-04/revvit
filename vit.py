@@ -106,6 +106,8 @@ class Block(nn.Module):
         self.G = MLPSubblock(dim=dim, enable_amp=enable_amp)
 
     def forward(self, X):
-        return self.G(self.F(X))
+        X = self.F(X) + X
+        X = self.G(X) + X
+        return X
 
 
