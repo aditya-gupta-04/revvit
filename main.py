@@ -17,6 +17,7 @@ from rev import RevViT
 from revmvit import ReversibleMViT as RevMViT
 from revswin import ReversibleSwinTransformer as RevSwin
 from vit import ViT_OG
+from data import get_data_loader
 
 import timm
 import time
@@ -57,6 +58,8 @@ parser.add_argument(
     help="number of classes in the dataset",
 )
 
+parser.add_argument("--dataset") 
+
 # To train the reversible architecture with or without reversible backpropagation
 parser.add_argument(
     "--vanilla_bp",
@@ -78,45 +81,14 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
+args.image_size = eval(args.image_size)
+args.patch_size = eval(args.patch_size)
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Data
-print("==> Preparing data..")
-transform_train = transforms.Compose(
-    [
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
-        ),
-    ]
-)
-
-transform_test = transforms.Compose(
-    [
-        transforms.ToTensor(),
-        transforms.Normalize(
-            (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
-        ),
-    ]
-)
-
-# Will downloaded and save the dataset if needed
-trainset = torchvision.datasets.CIFAR10(
-    root="./data", train=True, download=True, transform=transform_train
-)
-trainloader = torch.utils.data.DataLoader(
-    trainset, batch_size=args.bs, shuffle=True, num_workers=2
-)
-
-testset = torchvision.datasets.CIFAR10(
-    root="./data", train=False, download=True, transform=transform_test
-)
-testloader = torch.utils.data.DataLoader(
-    testset, batch_size=args.bs, shuffle=False, num_workers=2
-)
+trainloader, testloader = get_data_loader(args)
 
 if args.model == "vit":
     if args.pareprop:
@@ -180,6 +152,8 @@ else:
     raise NotImplementedError(f"Model {args.model} not supported.")
 model = model.to(device)
 
+print(f"\nNumber of model parameters: {sum(p.numel() for p in model.parameters())}\n")
+
 # Whether to use memory-efficient reversible backpropagation or vanilla backpropagation
 # Note that in both cases, the model is reversible.
 # For Swin, this requires iterating through the layers.
@@ -232,8 +206,6 @@ def train(epoch):
         batch_times.append(start_event_batch.elapsed_time(end_event_batch))  
         
     end_time = time.perf_counter() 
-
-    print(f"Batch Shape : {next(iter(trainloader))[0].shape}")
 
     peak_memory = torch.cuda.max_memory_allocated()  
     peak_reserved = torch.cuda.max_memory_reserved()
