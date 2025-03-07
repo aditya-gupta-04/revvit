@@ -48,9 +48,9 @@ parser.add_argument(
     "--depth", default=4, type=int, help="number of transformer blocks"
 )
 parser.add_argument(
-    "--patch_size", default=(4, 4), help="patch size in patchification"
+    "--patch_size", default="(4, 4)", help="patch size in patchification"
 )
-parser.add_argument("--image_size", default=(32, 32), help="input image size")
+parser.add_argument("--image_size", default="(32, 32)", help="input image size")
 parser.add_argument(
     "--num_classes",
     default=10,
