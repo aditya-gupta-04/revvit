@@ -1,6 +1,7 @@
 """Train CIFAR10 with PyTorch."""
 import argparse
 import os
+import json
 from functools import partial
 
 import torch
@@ -22,8 +23,11 @@ from data import get_data_loader
 import timm
 import time
 import numpy as np
+import pandas as pd
 
 parser = argparse.ArgumentParser(description="PyTorch CIFAR10 Training")
+
+parser.add_argument("--expt_name", type=str, help="Experiment Name", required=True)
 
 # Optimizer options
 parser.add_argument("--lr", default=1e-4, type=float, help="learning rate")
@@ -37,15 +41,15 @@ parser.add_argument(
 parser.add_argument("--model", default="vit", type=str, help="model name")
 parser.add_argument(
     "--embed_dim",
-    default=256,
+    default=384,
     type=int,
     help="embedding dimension of the transformer",
 )
 parser.add_argument(
-    "--n_head", default=8, type=int, help="number of heads in the transformer"
+    "--n_head", default=6, type=int, help="number of heads in the transformer"
 )
 parser.add_argument(
-    "--depth", default=4, type=int, help="number of transformer blocks"
+    "--depth", default=12, type=int, help="number of transformer blocks"
 )
 parser.add_argument(
     "--patch_size", default="(4, 4)", help="patch size in patchification"
@@ -58,7 +62,7 @@ parser.add_argument(
     help="number of classes in the dataset",
 )
 
-parser.add_argument("--dataset") 
+parser.add_argument("--dataset", required=True) 
 
 # To train the reversible architecture with or without reversible backpropagation
 parser.add_argument(
@@ -166,7 +170,7 @@ scaler = GradScaler()
 
 
 # Training
-def train(epoch):
+def train(epoch, logs):
     print("\nTraining Epoch: %d" % epoch)
     model.train()
     train_loss = 0
@@ -217,10 +221,17 @@ def train(epoch):
 
     print(f"Training Accuracy:{100.*correct/total: 0.2f}")
     print(f"Training Loss:{train_loss/(batch_idx+1): 0.3f}")
+
+    logs[-1]["train_loss"] = train_loss/(batch_idx+1)
+    logs[-1]["train_acc"] = 100.*correct/total
+    logs[-1]["train_peak_allocated_mem"] = peak_memory
+    logs[-1]["train_peak_reserved_mem"] = peak_reserved
+    logs[-1]["train_mean_batch_time"] = np.mean(batch_times)
+
     return 100.0 * correct / total, train_loss / (batch_idx + 1)
 
 
-def test(epoch):
+def test(epoch, logs):
     print("\nTesting Epoch: %d" % epoch)
     model.eval()
     test_loss = 0
@@ -265,6 +276,13 @@ def test(epoch):
         
         print(f"Test Accuracy:{100.*correct/total: 0.2f}")
         print(f"Test Loss:{test_loss/(batch_idx+1): 0.3f}")
+
+        logs[-1]["test_loss"] = test_loss/(batch_idx+1)
+        logs[-1]["test_acc"] = 100.*correct/total
+        logs[-1]["test_peak_allocated_mem"] = peak_memory
+        logs[-1]["test_peak_reserved_mem"] = peak_reserved
+        logs[-1]["test_mean_batch_time"] = np.mean(batch_times)
+
         return 100.0 * correct / total, test_loss / (batch_idx + 1)
 
 
@@ -278,11 +296,39 @@ torch.cuda.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
 
+if not os.path.exists("expt_logs"):
+    os.makedirs("expt_logs")
+
+if not os.path.exists(f"expt_logs/{args.expt_name}"):
+    os.makedirs(f"expt_logs/{args.expt_name}")
+else:
+    print("Experiment Log with identical expt_name found, run terminated !")
+    quit()
+
+with open(f"expt_logs/{args.expt_name}/metadata.json", "w") as f:
+    args_dict = vars(args)
+    args_dict["model_params"] = sum(p.numel() for p in model.parameters())
+    json.dump(args_dict, f, indent=4)
+
+logs = []
 for epoch in range(args.epochs):
-    train_acc, train_loss = train(epoch)
-    test_acc, test_loss = test(epoch)
+    logs.append({"epoch" : epoch})
+
+    train_acc, train_loss = train(epoch, logs)
+    test_acc, test_loss = test(epoch, logs)
 
     # Add logging/plot code if needed
+    logs_df = pd.DataFrame(logs)
+    logs_df.to_csv(f"./expt_logs/{args.expt_name}/logs.csv")
+
+    if epoch % 10 == 0:
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict()
+        }
+        torch.save(checkpoint, f"./expt_logs/{args.expt_name}/ckp_epoch_{epoch}.csv")
+        print(f"Checkpoint saved: ./expt_logs/{args.expt_name}/ckp_epoch_{epoch}.csv")
         
     scheduler.step(epoch - 1)
 
