@@ -61,6 +61,9 @@ parser.add_argument(
     type=int,
     help="number of classes in the dataset",
 )
+parser.add_argument("--token_mixer", default="attention", type=str, help="Token Mixer")
+parser.add_argument("--pool_size", default=3, type=int, help="Pooling Token Mixer pool size")
+
 
 parser.add_argument("--dataset", required=True) 
 
@@ -108,6 +111,8 @@ if args.model == "vit":
         image_size=args.image_size,
         num_classes=args.num_classes,
         enable_amp=args.amp,
+        token_mixer=args.token_mixer,
+        pool_size=args.pool_size,
     )
 elif args.model == "swin":
     model = RevSwin(
@@ -327,8 +332,13 @@ for epoch in range(args.epochs):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict()
         }
-        torch.save(checkpoint, f"./expt_logs/{args.expt_name}/ckp_epoch_{epoch}.csv")
-        print(f"Checkpoint saved: ./expt_logs/{args.expt_name}/ckp_epoch_{epoch}.csv")
+        torch.save(checkpoint, f"./expt_logs/{args.expt_name}/ckp_epoch_{epoch}.pth")
+        print(f"Checkpoint saved: ./expt_logs/{args.expt_name}/ckp_epoch_{epoch}.pth")
+
+        if epoch != 0:
+            os.system(f"rm -rf ./expt_logs/{args.expt_name}/ckp_epoch_{epoch-10}.pth")
+            print(f"Checkpoint deleted: ./expt_logs/{args.expt_name}/ckp_epoch_{epoch-10}.pth")
+        
         
     scheduler.step(epoch - 1)
 
