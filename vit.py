@@ -5,7 +5,7 @@ from torch import nn
 from torch.autograd import Function as Function
 
 from rev import AttentionSubBlock, MLPSubblock
-
+from tokenmixers import *
 
 class ViT_OG(nn.Module):
     def __init__(
@@ -21,6 +21,8 @@ class ViT_OG(nn.Module):
         image_size=(32, 32),  # CIFAR-10 image size
         num_classes=10,
         enable_amp=False,
+        token_mixer="attention",
+        pool_size=3
     ):
         super().__init__()
 
@@ -33,6 +35,8 @@ class ViT_OG(nn.Module):
             image_size[1] // self.patch_size[1]
         )
 
+        patches_shape = (image_size[0] // self.patch_size[0], image_size[1] // self.patch_size[1])
+
         # Reversible blocks can be treated same as vanilla blocks,
         # any special treatment needed for reversible bacpropagation
         # is contrained inside the block code and not exposed.
@@ -42,6 +46,9 @@ class ViT_OG(nn.Module):
                     dim=self.embed_dim,
                     num_heads=self.n_head,
                     enable_amp=enable_amp,
+                    token_mixer=token_mixer,
+                    pool_size=pool_size,
+                    patches_shape=patches_shape,
                 )
                 for _ in range(self.depth)
             ]
@@ -95,13 +102,28 @@ class ViT_OG(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads, enable_amp):
+    def __init__(self, dim, num_heads, enable_amp,  token_mixer, pool_size, patches_shape):
         super().__init__()
         # F and G can be arbitrary functions, here we use
         # simple attwntion and MLP sub-blocks using vanilla attention.
-        self.F = AttentionSubBlock(
-            dim=dim, num_heads=num_heads, enable_amp=enable_amp
-        )
+        if token_mixer == "attention":
+            self.F = AttentionSubBlock(
+                dim=dim, num_heads=num_heads, enable_amp=enable_amp
+            )
+            print("Using attention token mixer")
+        elif token_mixer == "pooling":
+            self.F = PoolingFBlock(
+                dim=dim, pool_size=pool_size, patches_shape=patches_shape, enable_amp=enable_amp
+            )
+            print(f"Using pooling token mixer with pool_size : {pool_size}")
+        elif token_mixer == "spatial_mlp":
+            self.F = SpatialMLPFBlock(
+                dim=dim, patches_shape=patches_shape, enable_amp=enable_amp
+            )
+            print("Using spatial_mlp token mixer")
+        else:
+            print(f"Unsupported Token Mixer {token_mixer}")
+            quit()
 
         self.G = MLPSubblock(dim=dim, enable_amp=enable_amp)
 

@@ -150,6 +150,8 @@ elif args.model == "vit-og":
         image_size=args.image_size,
         num_classes=args.num_classes,
         enable_amp=args.amp,
+        token_mixer=args.token_mixer,
+        pool_size=args.pool_size,
     )
 elif args.model == "vit-small":
     print("Warning : vit-small is not configured to its native 224x224 image and 16x16 patch size")
