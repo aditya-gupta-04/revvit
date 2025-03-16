@@ -24,14 +24,14 @@ def get_data_loader(args):
 
         # Will downloaded and save the dataset if needed
         trainset = torchvision.datasets.CIFAR10(
-            root="./data", train=True, download=True, transform=transform_train
+            root="../data/cifar-10", train=True, download=True, transform=transform_train
         )
         trainloader = torch.utils.data.DataLoader(
             trainset, batch_size=args.bs, shuffle=True, num_workers=2
         )
 
         testset = torchvision.datasets.CIFAR10(
-            root="./data", train=False, download=True, transform=transform_test
+            root="../data/cifar-10", train=False, download=True, transform=transform_test
         )
         testloader = torch.utils.data.DataLoader(
             testset, batch_size=args.bs, shuffle=False, num_workers=2
@@ -58,14 +58,14 @@ def get_data_loader(args):
 
         # Will downloaded and save the dataset if needed
         trainset = torchvision.datasets.CIFAR100(
-            root="./data", train=True, download=True, transform=transform_train
+            root="../data/cifar-100", train=True, download=True, transform=transform_train
         )
         trainloader = torch.utils.data.DataLoader(
             trainset, batch_size=args.bs, shuffle=True, num_workers=2
         )
 
         testset = torchvision.datasets.CIFAR100(
-            root="./data", train=False, download=True, transform=transform_test
+            root="../data/cifar-100", train=False, download=True, transform=transform_test
         )
         testloader = torch.utils.data.DataLoader(
             testset, batch_size=args.bs, shuffle=False, num_workers=2
@@ -79,38 +79,38 @@ def get_data_loader(args):
     
     elif args.dataset == "TinyImageNet":
 
-        if os.path.isdir("./data/tiny-imagenet-200"):
+        if os.path.isdir("../data/tiny-imagenet-200"):
             print("data/tiny-imagenet-200 directory already exists!")
             print("Using Existing Image Folder Directory")
         else:
             print("Downloading Tiny ImageNet")
             
-            if not os.path.isdir("./data"):
-                os.makedirs("./data")
+            if not os.path.isdir("../data"):
+                os.makedirs("../data")
             os.system("wget http://cs231n.stanford.edu/tiny-imagenet-200.zip")
-            os.system("unzip -q tiny-imagenet-200.zip -d data/")
+            os.system("unzip -q tiny-imagenet-200.zip -d ../data/")
             os.system(f"rm -rf tiny-imagenet-200.zip")
 
-            with open("./data/tiny-imagenet-200/val/val_annotations.txt", "r") as f:
+            with open("../data/tiny-imagenet-200/val/val_annotations.txt", "r") as f:
                 data = f.readlines()
 
             for line in data:
                 image_name, class_id, *_ = line.split("\t")
 
-                if not os.path.exists(f"./data/tiny-imagenet-200/val/{class_id}"):
-                    os.makedirs(f"./data/tiny-imagenet-200/val/{class_id}")
+                if not os.path.exists(f"../data/tiny-imagenet-200/val/{class_id}"):
+                    os.makedirs(f"../data/tiny-imagenet-200/val/{class_id}")
 
-                shutil.move(f"./data/tiny-imagenet-200/val/images/{image_name}", f"./data/tiny-imagenet-200/val/{class_id}/{image_name}")
+                shutil.move(f"../data/tiny-imagenet-200/val/images/{image_name}", f"../data/tiny-imagenet-200/val/{class_id}/{image_name}")
 
-            shutil.rmtree("./data/tiny-imagenet-200/val/images/")
-            os.system("rm -rf ./data/tiny-imagenet-200/val/val_annotations.txt")
+            shutil.rmtree("../data/tiny-imagenet-200/val/images/")
+            os.system("rm -rf ../data/tiny-imagenet-200/val/val_annotations.txt")
 
-            for dir in os.listdir("./data/tiny-imagenet-200/train/"):
-                for img in os.listdir(f"./data/tiny-imagenet-200/train/{dir}/images/"):
-                    shutil.move(f"./data/tiny-imagenet-200/train/{dir}/images/{img}", f"./data/tiny-imagenet-200/train/{dir}/{img}")
+            for dir in os.listdir("../data/tiny-imagenet-200/train/"):
+                for img in os.listdir(f"../data/tiny-imagenet-200/train/{dir}/images/"):
+                    shutil.move(f"../data/tiny-imagenet-200/train/{dir}/images/{img}", f"../data/tiny-imagenet-200/train/{dir}/{img}")
 
-                shutil.rmtree(f"./data/tiny-imagenet-200/train/{dir}/images/")
-                os.system(f"rm -rf ./data/tiny-imagenet-200/train/{dir}/*.txt")
+                shutil.rmtree(f"../data/tiny-imagenet-200/train/{dir}/images/")
+                os.system(f"rm -rf ../data/tiny-imagenet-200/train/{dir}/*.txt")
 
         transform_train = transforms.Compose([
             transforms.RandomResizedCrop(64),
@@ -126,8 +126,46 @@ def get_data_loader(args):
         ])
 
         # Define dataset paths
-        train_dir = "./data/tiny-imagenet-200/train"
-        val_dir = "./data/tiny-imagenet-200/val"
+        train_dir = "../data/tiny-imagenet-200/train"
+        val_dir = "../data/tiny-imagenet-200/val"
+
+        # Load dataset using ImageFolder
+        trainset = torchvision.datasets.ImageFolder(root=train_dir, transform=transform_train)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2)
+
+        testset = torchvision.datasets.ImageFolder(root=val_dir, transform=transform_test)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, num_workers=2)
+
+        num_classes = len(trainset.classes)  
+        images, labels = next(iter(trainloader))
+        print(f"Train samples: {len(trainset)}, Test samples: {len(testset)}, Num Classes : {num_classes}, Batch shape: {images.shape}")
+
+        return trainloader, testloader
+    
+    elif args.dataset == "imagenet-100":
+
+        if os.path.isdir("../data/imagenet-100"):
+            print("Loading data from ../data/imagenet-100")
+        else:
+            print("../data/imagenet-100 not found")
+            exit()
+
+        transform_train = transforms.Compose([
+            # transforms.RandomResizedCrop(64),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+        transform_test = transforms.Compose([
+            # transforms.Resize((64, 64)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+        # Define dataset paths
+        train_dir = "../data/imagenet-100/train"
+        val_dir = "../data/imagenet-100/val"
 
         # Load dataset using ImageFolder
         trainset = torchvision.datasets.ImageFolder(root=train_dir, transform=transform_train)

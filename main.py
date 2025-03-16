@@ -326,7 +326,7 @@ for epoch in range(args.epochs):
 
     # Add logging/plot code if needed
     logs_df = pd.DataFrame(logs)
-    logs_df.to_csv(f"./expt_logs/{args.expt_name}/logs.csv")
+    logs_df.to_csv(f"./expt_logs/{args.expt_name}/{args.expt_name}_logs.csv")
 
     if epoch % 10 == 0:
         checkpoint = {
