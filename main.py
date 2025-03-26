@@ -24,14 +24,17 @@ import timm
 import time
 import numpy as np
 import pandas as pd
+from timm.loss import SoftTargetCrossEntropy
 
 parser = argparse.ArgumentParser(description="PyTorch CIFAR10 Training")
 
 parser.add_argument("--expt_name", type=str, help="Experiment Name", required=True)
 
 # Optimizer options
-parser.add_argument("--lr", default=1e-4, type=float, help="learning rate")
+parser.add_argument("--lr", default=5e-4, type=float, help="learning rate")
 parser.add_argument("--bs", default=128, type=int, help="batch size")
+parser.add_argument("--deit_scheme", action="store_true")
+
 
 parser.add_argument(
     "--epochs", default=200, type=int, help="number of classes in the dataset"
@@ -158,7 +161,7 @@ elif args.model == "vit-small":
     print("Warning : vit-small modified to not use class tokens and classifier head is uses average pool of output sequence")
     model = timm.create_model("vit_small_patch16_224", pretrained=False, 
                                 num_classes=args.num_classes, img_size=args.image_size, patch_size=args.patch_size,
-                                class_token=False, global_pool='avg')
+                                class_token=False, global_pool='avg', drop_rate=0.0, drop_path_rate=(0.1 if args.deit_scheme else 0.0))
 else:
     raise NotImplementedError(f"Model {args.model} not supported.")
 model = model.to(device)
@@ -170,9 +173,40 @@ print(f"\nNumber of model parameters: {sum(p.numel() for p in model.parameters()
 # For Swin, this requires iterating through the layers.
 model.no_custom_backward = args.vanilla_bp
 
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=args.lr)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
+# Criterion, LR & Mixup
+mixup_fn = None
+if args.deit_scheme:
+    print("DEIT SCHEME BEING USED")
+    criterion = SoftTargetCrossEntropy()
+    args.lr = 5e-4 * (args.bs/512)
+
+    mixup_fn = timm.data.Mixup(
+            mixup_alpha=0.8, cutmix_alpha=1.0,
+            prob=1, switch_prob=0.5, mode="batch",
+            label_smoothing=0.1, num_classes=args.num_classes)
+else:
+    print("DEIT SCHEME NOT BEING USED")
+    criterion = nn.CrossEntropyLoss()
+
+# LR
+if args.lr != 5e-4 * (args.bs/512):
+    print(f"Base LR of {args.lr} does not match 5e-4 * ({args.bs}/512) = {5e-4 * (args.bs/512)}")
+else:
+    print(f"LR set to {args.lr} as per 5e-4 * ({args.bs}/512)")
+
+# Optimizer
+optimizer = optim.AdamW(model.parameters(), lr=args.lr, eps=1e-08, weight_decay=0.05)
+
+# Scheduler
+if args.deit_scheme:
+    warmup_epochs = 5
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1e-8 / args.lr, total_iters=warmup_epochs)
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(args.epochs - warmup_epochs), eta_min=1e-6)
+    scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_epochs])
+    print(f"Using cosine scheduler with {warmup_epochs} warmup epochs followed by cosine annealing")
+else:
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
+
 scaler = GradScaler()
 
 
@@ -196,6 +230,13 @@ def train(epoch, logs):
         # We do not need to specify AMP autocast in forward pass here since
         # that is taken care of already in the forward of individual modules.
         inputs, targets = inputs.to(device), targets.to(device)
+
+        if mixup_fn is not None:
+            if inputs.shape[0] % 2:
+                print("One sample dropped from batch")
+                inputs, targets = inputs[:-1], targets[:-1]
+            inputs, targets = mixup_fn(inputs, targets)
+
         outputs = model(inputs)
         loss = criterion(outputs, targets)
 
@@ -209,7 +250,7 @@ def train(epoch, logs):
         train_loss += loss.item()
         _, predicted = outputs.max(1)
         total += targets.size(0)
-        correct += predicted.eq(targets).sum().item()
+        # correct += predicted.eq(targets).sum().item()
 
         end_event_batch.record()
 
@@ -228,12 +269,14 @@ def train(epoch, logs):
 
     print(f"Training Accuracy:{100.*correct/total: 0.2f}")
     print(f"Training Loss:{train_loss/(batch_idx+1): 0.3f}")
+    print(f"Current LR : {scheduler.get_last_lr()[0]}")
 
     logs[-1]["train_loss"] = train_loss/(batch_idx+1)
     logs[-1]["train_acc"] = 100.*correct/total
     logs[-1]["train_peak_allocated_mem"] = peak_memory
     logs[-1]["train_peak_reserved_mem"] = peak_reserved
     logs[-1]["train_mean_batch_time"] = np.mean(batch_times)
+    logs[-1]["lr"] = scheduler.get_last_lr()[0]
 
     return 100.0 * correct / total, train_loss / (batch_idx + 1)
 
@@ -257,7 +300,7 @@ def test(epoch, logs):
 
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
-            loss = criterion(outputs, targets)
+            loss = criterion(outputs, F.one_hot(targets, num_classes=args.num_classes).float())
 
             test_loss += loss.item()
             _, predicted = outputs.max(1)
@@ -342,6 +385,6 @@ for epoch in range(args.epochs):
             print(f"Checkpoint deleted: ./expt_logs/{args.expt_name}/ckp_epoch_{epoch-10}.pth")
         
         
-    scheduler.step(epoch - 1)
+    scheduler.step()
 
 # based on https://github.com/kentaroy47/vision-transformers-cifar10

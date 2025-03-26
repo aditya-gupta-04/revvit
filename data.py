@@ -3,6 +3,7 @@ import torchvision
 import torchvision.transforms as transforms
 import os
 import shutil
+import timm
 
 
 def get_data_loader(args):
@@ -150,15 +151,35 @@ def get_data_loader(args):
             print("../data/imagenet-100 not found")
             exit()
 
-        transform_train = transforms.Compose([
-            # transforms.RandomResizedCrop(64),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        # transform_train = transforms.Compose([
+        #     transforms.RandomResizedCrop(256),
+        #     transforms.CenterCrop(224),
+        #     transforms.RandomHorizontalFlip(),
+        #     transforms.ToTensor(),
+        #     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        # ])
+
+        # transform_test = transforms.Compose([
+        #     transforms.RandomResizedCrop(256),
+        #     transforms.CenterCrop(224),
+        #     transforms.ToTensor(),
+        #     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        # ])
+
+        transform_train = timm.data.create_transform(
+            input_size=224,
+            is_training=True,
+            color_jitter=0.4,
+            auto_augment="rand-m7-mstd0.5-inc1",
+            interpolation="bicubic",
+            re_prob=0.25,
+            re_mode="pixel",
+            re_count=1
+        )
 
         transform_test = transforms.Compose([
-            # transforms.Resize((64, 64)),
+            transforms.Resize(int(224 / 0.875), interpolation=3), # eval crop ratio
+            transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
