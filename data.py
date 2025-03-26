@@ -45,17 +45,42 @@ def get_data_loader(args):
         return trainloader, testloader
     
     elif args.dataset == "CIFAR100":
-        transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
-        ])
 
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
-        ])
+        if args.deit_scheme:
+            
+            transform_train = timm.data.create_transform(
+                input_size=32,
+                is_training=True,
+                color_jitter=0.4,
+                auto_augment="rand-m7-mstd0.5-inc1",
+                interpolation="bicubic",
+                re_prob=0.25,
+                re_mode="pixel",
+                re_count=1,
+                mean=[0.5071, 0.4867, 0.4408], 
+                std=[0.2675, 0.2565, 0.2761]
+            )
+            
+            transform_train.transforms[0] = transforms.RandomCrop(32, padding=4)
+
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
+            ])
+
+        else: 
+
+            transform_train = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
+            ])
+
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])
+            ])
 
         # Will downloaded and save the dataset if needed
         trainset = torchvision.datasets.CIFAR100(
