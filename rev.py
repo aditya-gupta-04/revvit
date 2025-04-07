@@ -6,8 +6,11 @@ from torch.autograd import Function as Function
 
 # We use the standard pytorch multi-head attention module
 from torch.nn import MultiheadAttention as MHA
+import sys
 
+from utils import drop_path
 from tokenmixers import *
+
 
 class RevViT(nn.Module):
     def __init__(
@@ -15,6 +18,7 @@ class RevViT(nn.Module):
         embed_dim=768,
         n_head=8,
         depth=8,
+        drop_path_rate=0,
         patch_size=(
             2,
             2,
@@ -39,6 +43,10 @@ class RevViT(nn.Module):
 
         patches_shape = (image_size[0] // self.patch_size[0], image_size[1] // self.patch_size[1])
 
+        dpr = [
+            x.item() for x in torch.linspace(0, drop_path_rate, depth)
+        ] # stochastic depth decay rule
+
         # Reversible blocks can be treated same as vanilla blocks,
         # any special treatment needed for reversible bacpropagation
         # is contrained inside the block code and not exposed.
@@ -48,11 +56,12 @@ class RevViT(nn.Module):
                     dim=self.embed_dim,
                     num_heads=self.n_head,
                     enable_amp=enable_amp,
+                    drop_path=dpr[i],
                     token_mixer=token_mixer,
                     pool_size=pool_size,
                     patches_shape=patches_shape,
                 )
-                for _ in range(self.depth)
+                for i in range(self.depth)
             ]
         )
 
@@ -198,7 +207,7 @@ class ReversibleBlock(nn.Module):
     See Section 3.3.2 in paper for details.
     """
 
-    def __init__(self, dim, num_heads, enable_amp, token_mixer, pool_size, patches_shape):
+    def __init__(self, dim, num_heads, enable_amp, drop_path, token_mixer, pool_size, patches_shape):
         """
         Block is composed entirely of function F (Attention
         sub-block) and G (MLP sub-block) including layernorm.
@@ -206,6 +215,8 @@ class ReversibleBlock(nn.Module):
         super().__init__()
         # F and G can be arbitrary functions, here we use
         # simple attwntion and MLP sub-blocks using vanilla attention.
+
+        self.drop_path_rate = drop_path
 
         if token_mixer == "attention":
             self.F = AttentionSubBlock(
@@ -233,6 +244,31 @@ class ReversibleBlock(nn.Module):
         # not need to control seeds for the random number generator.
         # To see usage with controlled seeds and dropout, see pyslowfast.
 
+        self.seeds = {}
+    
+    def seed_cuda(self, key):
+        """
+        Fix seeds to allow for stochastic elements such as
+        dropout to be reproduced exactly in activation
+        recomputation in the backward pass.
+        """
+
+        # randomize seeds
+        # use cuda generator if available
+        if (
+            hasattr(torch.cuda, "default_generators")
+            and len(torch.cuda.default_generators) > 0
+        ):
+            # GPU
+            device_idx = torch.cuda.current_device()
+            seed = torch.cuda.default_generators[device_idx].seed()
+        else:
+            # CPU
+            seed = int(torch.seed() % sys.maxsize)
+
+        self.seeds[key] = seed
+        torch.manual_seed(self.seeds[key])
+
     def forward(self, X_1, X_2):
         """
         forward pass equations:
@@ -240,19 +276,31 @@ class ReversibleBlock(nn.Module):
         Y_2 = X_2 + MLP(Y_1), G = MLP
         """
 
+        self.seed_cuda("attn")
         # Y_1 : attn_output
         f_X_2 = self.F(X_2)
 
+        self.seed_cuda("droppath")
+        f_X_2_dropped = drop_path(
+            f_X_2, drop_prob=self.drop_path_rate, training=self.training
+        )
+
         # Y_1 = X_1 + f(X_2)
-        Y_1 = X_1 + f_X_2
+        Y_1 = X_1 + f_X_2_dropped
 
         # free memory since X_1 is now not needed
         del X_1
 
+        self.seed_cuda("FFN")
         g_Y_1 = self.G(Y_1)
 
+        torch.manual_seed(self.seeds["droppath"])
+        g_Y_1_dropped = drop_path(
+            g_Y_1, drop_prob=self.drop_path_rate, training=self.training
+        )
+
         # Y_2 = X_2 + g(Y_1)
-        Y_2 = X_2 + g_Y_1
+        Y_2 = X_2 + g_Y_1_dropped
 
         # free memory since X_2 is now not needed
         del X_2
@@ -282,7 +330,13 @@ class ReversibleBlock(nn.Module):
 
             # reconstrucating the intermediate activations
             # and the computational graph for F.
+            torch.manual_seed(self.seeds["FFN"])
             g_Y_1 = self.G(Y_1)
+
+            torch.manual_seed(self.seeds["droppath"])
+            g_Y_1 = drop_path(
+                g_Y_1, drop_prob=self.drop_path_rate, training=self.training
+            )
 
             # using pytorch native logic to differentiate through
             # gradients in G in backward pass.
@@ -312,7 +366,13 @@ class ReversibleBlock(nn.Module):
 
             # reconstrucating the intermediate activations
             # and the computational graph for F.
+            torch.manual_seed(self.seeds["attn"])
             f_X_2 = self.F(X_2)
+
+            torch.manual_seed(self.seeds["droppath"])
+            f_X_2 = drop_path(
+                f_X_2, drop_prob=self.drop_path_rate, training=self.training
+            )
 
             # using pytorch native logic to differentiate through
             # gradients in G in backward pass.

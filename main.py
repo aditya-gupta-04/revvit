@@ -110,6 +110,7 @@ if args.model == "vit":
         embed_dim=args.embed_dim,
         n_head=args.n_head,
         depth=args.depth,
+        drop_path_rate=(0.1 if args.deit_scheme else 0.0),
         patch_size=args.patch_size,
         image_size=args.image_size,
         num_classes=args.num_classes,
