@@ -5,8 +5,39 @@ import os
 import shutil
 import timm
 
+from torch.utils.data.distributed import DistributedSampler
 
 def get_data_loader(args):
+    
+    trainset, testset = get_dataset(args)
+
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2)
+
+    testloader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, num_workers=2)
+    
+    num_classes = len(trainset.classes)  
+    images, labels = next(iter(trainloader))
+    print(f"Train samples: {len(trainset)}, Test samples: {len(testset)}, Num Classes : {num_classes}, Batch shape: {images.shape}")
+
+    return trainloader, testloader
+
+def get_data_loader_ddp(args, rank, world_size, pin_memory, num_workers):
+
+    trainset, testset = get_dataset(args)
+
+    train_sampler = DistributedSampler(trainset)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, pin_memory=pin_memory, num_workers=num_workers, drop_last=False, shuffle=False, sampler=train_sampler)
+
+    test_sampler = DistributedSampler(testset)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=args.bs, pin_memory=pin_memory, num_workers=num_workers, drop_last=False, shuffle=False, sampler=test_sampler)
+    
+    num_classes = len(trainset.classes)  
+    images, labels = next(iter(trainloader))
+    print(f"Train samples: {len(trainset)}, Test samples: {len(testset)}, Num Classes : {num_classes}, Batch shape: {images.shape}")
+
+    return trainloader, testloader
+
+def get_dataset(args):
 
     print("==> Preparing data..")
 
@@ -27,22 +58,12 @@ def get_data_loader(args):
         trainset = torchvision.datasets.CIFAR10(
             root="../data/cifar-10", train=True, download=True, transform=transform_train
         )
-        trainloader = torch.utils.data.DataLoader(
-            trainset, batch_size=args.bs, shuffle=True, num_workers=2
-        )
 
         testset = torchvision.datasets.CIFAR10(
             root="../data/cifar-10", train=False, download=True, transform=transform_test
         )
-        testloader = torch.utils.data.DataLoader(
-            testset, batch_size=args.bs, shuffle=False, num_workers=2
-        )
-        
-        num_classes = len(trainset.classes)  
-        images, labels = next(iter(trainloader))
-        print(f"Train samples: {len(trainset)}, Test samples: {len(testset)}, Num Classes : {num_classes}, Batch shape: {images.shape}")
 
-        return trainloader, testloader
+        return trainset, testset    
     
     elif args.dataset == "CIFAR100":
 
@@ -86,22 +107,12 @@ def get_data_loader(args):
         trainset = torchvision.datasets.CIFAR100(
             root="../data/cifar-100", train=True, download=True, transform=transform_train
         )
-        trainloader = torch.utils.data.DataLoader(
-            trainset, batch_size=args.bs, shuffle=True, num_workers=2
-        )
 
         testset = torchvision.datasets.CIFAR100(
             root="../data/cifar-100", train=False, download=True, transform=transform_test
         )
-        testloader = torch.utils.data.DataLoader(
-            testset, batch_size=args.bs, shuffle=False, num_workers=2
-        )
 
-        num_classes = len(trainset.classes)  
-        images, labels = next(iter(trainloader))
-        print(f"Train samples: {len(trainset)}, Test samples: {len(testset)}, Num Classes : {num_classes}, Batch shape: {images.shape}")
-
-        return trainloader, testloader
+        return trainset, testset
     
     elif args.dataset == "TinyImageNet":
 
@@ -157,16 +168,11 @@ def get_data_loader(args):
 
         # Load dataset using ImageFolder
         trainset = torchvision.datasets.ImageFolder(root=train_dir, transform=transform_train)
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2)
 
         testset = torchvision.datasets.ImageFolder(root=val_dir, transform=transform_test)
-        testloader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, num_workers=2)
 
-        num_classes = len(trainset.classes)  
-        images, labels = next(iter(trainloader))
-        print(f"Train samples: {len(trainset)}, Test samples: {len(testset)}, Num Classes : {num_classes}, Batch shape: {images.shape}")
-
-        return trainloader, testloader
+        return trainset, testset
+        
     
     elif args.dataset == "imagenet-100":
 
@@ -215,16 +221,10 @@ def get_data_loader(args):
 
         # Load dataset using ImageFolder
         trainset = torchvision.datasets.ImageFolder(root=train_dir, transform=transform_train)
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=True, num_workers=2)
 
         testset = torchvision.datasets.ImageFolder(root=val_dir, transform=transform_test)
-        testloader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, num_workers=2)
 
-        num_classes = len(trainset.classes)  
-        images, labels = next(iter(trainloader))
-        print(f"Train samples: {len(trainset)}, Test samples: {len(testset)}, Num Classes : {num_classes}, Batch shape: {images.shape}")
-
-        return trainloader, testloader
+        return trainset, testset
 
     else:
         print(f"{args.dataset} not known")
