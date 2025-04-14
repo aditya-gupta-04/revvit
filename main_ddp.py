@@ -106,6 +106,9 @@ args.patch_size = eval(args.patch_size)
 
 def main_worker(rank, world_size, args):
 
+    assert (args.bs % world_size) == 0
+    assert (args.bs / world_size) % 2 == 0
+
     print(f"Rank {rank} spawned")
     args.world_size = world_size
 
@@ -127,7 +130,7 @@ def main_worker(rank, world_size, args):
     if args.deit_scheme:
         print("DEIT SCHEME BEING USED")
         criterion = SoftTargetCrossEntropy()
-        args.lr = 5e-4 * (args.bs/512)
+        args.lr = 5e-4 * (args.bs * world_size/512)
 
         mixup_fn = timm.data.Mixup(
                 mixup_alpha=0.8, cutmix_alpha=1.0,
@@ -138,10 +141,10 @@ def main_worker(rank, world_size, args):
         criterion = nn.CrossEntropyLoss()
 
     # LR
-    if args.lr != 5e-4 * (args.bs/512):
-        print(f"Base LR of {args.lr} does not match 5e-4 * ({args.bs}/512) = {5e-4 * (args.bs/512)}")
+    if args.lr != 5e-4 * (args.bs * world_size/512):
+        print(f"Base LR of {args.lr} does not match 5e-4 * ({args.bs * world_size}/512) = {5e-4 * (args.bs * world_size/512)}")
     else:
-        print(f"LR set to {args.lr} as per 5e-4 * ({args.bs}/512)")
+        print(f"LR set to {args.lr} as per 5e-4 * ({args.bs * world_size}/512)")
 
     # Optimizer
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, eps=1e-08, weight_decay=0.05)
@@ -398,7 +401,7 @@ if not os.path.exists(f"expt_logs/{args.expt_name}"):
     os.makedirs(f"expt_logs/{args.expt_name}")
     with open(f'expt_logs/{args.expt_name}/{args.expt_name}_logs.csv', 'a', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow("epoch,train_loss,test_loss,test_acc,test_acc5")
+        writer.writerow(["epoch", "train_loss", "test_loss", "test_acc", "test_acc5"])
 
 
 if __name__ == "__main__":
