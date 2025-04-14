@@ -29,6 +29,8 @@ class PoolingFBlock(nn.Module):
         dim,
         pool_size,
         patches_shape,
+        num_registers=0,
+        num_heads=12,
         enable_amp=False,
     ):
         super().__init__()
@@ -37,16 +39,29 @@ class PoolingFBlock(nn.Module):
         self.patches_shape = patches_shape
         self.enable_amp = enable_amp
 
+        self.num_registers = num_registers
+        self.mha = torch.nn.MultiheadAttention(embed_dim=dim, num_heads=num_heads, batch_first=True)
+
     def forward(self, x):
 
         with torch.cuda.amp.autocast(enabled=self.enable_amp):
-            batch_size, sequence_length, dim = x.shape
 
-            x = self.norm(x)    
+            x = self.norm(x)
+
+            if self.num_registers > 0:
+                registers = x[:, :self.num_registers, :]
+                x = x[:, self.num_registers:, :]
+                attn_computed_registers, _ = self.mha(registers, x, x) # Should register computation be before LN or after LN?
+
+            batch_size, sequence_length, dim = x.shape
+    
             x = x.transpose(1,2).reshape(batch_size, dim, self.patches_shape[0], self.patches_shape[1])
             x = self.pool(x) - x
             x = x.reshape(batch_size, sequence_length, dim)
 
+            if self.num_registers > 0:
+                x = torch.concat([x, attn_computed_registers], dim=1)
+                
             return x
 
 class SpatialMLPFBlock(nn.Module):

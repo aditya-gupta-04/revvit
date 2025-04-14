@@ -28,7 +28,8 @@ class RevViT(nn.Module):
         num_classes=10,
         enable_amp=False,
         token_mixer="attention",
-        pool_size=3
+        pool_size=3,
+        num_registers=0
     ):
         super().__init__()
 
@@ -36,6 +37,12 @@ class RevViT(nn.Module):
         self.n_head = n_head
         self.depth = depth
         self.patch_size = patch_size
+
+        self.num_registers = num_registers
+        self.reg_tokens = nn.Parameter(torch.zeros(1, self.num_registers, embed_dim)) if self.num_registers > 0 else None
+
+        if self.reg_tokens is not None:
+            print(f"Initialised register tokens of shape {self.reg_tokens.shape}")
 
         num_patches = (image_size[0] // self.patch_size[0]) * (
             image_size[1] // self.patch_size[1]
@@ -60,6 +67,7 @@ class RevViT(nn.Module):
                     token_mixer=token_mixer,
                     pool_size=pool_size,
                     patches_shape=patches_shape,
+                    num_registers=num_registers
                 )
                 for i in range(self.depth)
             ]
@@ -75,7 +83,7 @@ class RevViT(nn.Module):
         )
 
         self.pos_embeddings = nn.Parameter(
-            torch.zeros(1, num_patches, self.embed_dim)
+            torch.zeros(1, num_patches + self.num_registers, self.embed_dim)
         )
 
         # The two streams are concatenated and passed through a linear
@@ -104,6 +112,11 @@ class RevViT(nn.Module):
         # patchification using conv and flattening
         # + abolsute positional embeddings
         x = self.patch_embed(x).flatten(2).transpose(1, 2)
+
+        if self.num_registers > 0:
+            batch_registers = self.reg_tokens.expand(x.shape[0], -1, -1)
+            x = torch.cat([batch_registers, x], dim=1)
+                
         x += self.pos_embeddings
 
         # the two streams X_1 and X_2 are initialized identically with x and
@@ -207,7 +220,7 @@ class ReversibleBlock(nn.Module):
     See Section 3.3.2 in paper for details.
     """
 
-    def __init__(self, dim, num_heads, enable_amp, drop_path, token_mixer, pool_size, patches_shape):
+    def __init__(self, dim, num_heads, enable_amp, drop_path, token_mixer, pool_size, patches_shape, num_registers):
         """
         Block is composed entirely of function F (Attention
         sub-block) and G (MLP sub-block) including layernorm.
@@ -225,12 +238,12 @@ class ReversibleBlock(nn.Module):
             print("Using attention token mixer")
         elif token_mixer == "pooling":
             self.F = PoolingFBlock(
-                dim=dim, pool_size=pool_size, patches_shape=patches_shape, enable_amp=enable_amp
+                dim=dim, pool_size=pool_size, patches_shape=patches_shape, num_registers=num_registers, enable_amp=enable_amp
             )
             print(f"Using pooling token mixer with pool_size : {pool_size}")
         elif token_mixer == "spatial_mlp":
             self.F = SpatialMLPFBlock(
-                dim=dim, patches_shape=patches_shape, enable_amp=enable_amp
+                dim=dim, patches_shape=patches_shape, num_registers=num_registers, enable_amp=enable_amp
             )
             print("Using spatial_mlp token mixer")
         else:

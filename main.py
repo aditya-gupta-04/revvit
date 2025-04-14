@@ -13,7 +13,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.cuda.amp import GradScaler
 
-from vit import build_model
+from build_model import build_model
 from data import get_data_loader
 
 import timm
@@ -62,6 +62,7 @@ parser.add_argument(
 )
 parser.add_argument("--token_mixer", default="attention", type=str, help="Token Mixer")
 parser.add_argument("--pool_size", default=3, type=int, help="Pooling Token Mixer pool size")
+parser.add_argument("--num_registers", default=0, type=int, help="# of registers to be used")
 
 
 parser.add_argument("--dataset", required=True) 

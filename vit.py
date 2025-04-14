@@ -4,85 +4,8 @@ from torch import nn
 # Needed to implement custom backward pass
 from torch.autograd import Function as Function
 
-from rev import *
-from fast_rev import *
 from tokenmixers import *
-
-def build_model(args):
-    if args.model == "vit":
-        if args.pareprop:
-            rev_arch = FastRevViT
-        else:
-            rev_arch = RevViT
-
-        model = rev_arch(
-            embed_dim=args.embed_dim,
-            n_head=args.n_head,
-            depth=args.depth,
-            drop_path_rate=(0.1 if args.deit_scheme else 0.0),
-            patch_size=args.patch_size,
-            image_size=args.image_size,
-            num_classes=args.num_classes,
-            enable_amp=args.amp,
-            token_mixer=args.token_mixer,
-            pool_size=args.pool_size,
-        )
-    elif args.model == "swin":
-        model = RevSwin(
-            img_size=args.image_size,
-            patch_size=args.patch_size,
-            num_classes=args.num_classes,
-            embed_dim=args.embed_dim,
-            depths=[args.depth // 2, args.depth // 2],
-            num_heads=[args.n_head, args.n_head * 2],
-            window_size=4,
-            fast_backprop=args.pareprop,
-        )
-    elif args.model == "mvit":
-        model = RevMViT(
-            img_size=args.image_size,
-            patch_kernel=(3, 3),
-            patch_stride=(2, 2),
-            patch_padding=(1, 1),
-            num_classes=args.num_classes,
-            embed_dim=args.embed_dim,
-            depth=args.depth,
-            num_heads=args.n_head,  # doubles every stage
-            last_block_indexes=[0, 2],
-            qkv_pool_kernel=(3, 3),
-            adaptive_kv_stride=2,
-            adaptive_window_size=16,
-            fast_backprop=args.pareprop,
-        )
-    elif args.model == "vit-og":
-        model = ViT_OG(
-            embed_dim=args.embed_dim,
-            n_head=args.n_head,
-            depth=args.depth,
-            patch_size=args.patch_size,
-            image_size=args.image_size,
-            num_classes=args.num_classes,
-            enable_amp=args.amp,
-            token_mixer=args.token_mixer,
-            pool_size=args.pool_size,
-        )
-    elif args.model == "vit-small":
-        print("Warning : vit-small is not configured to its native 224x224 image and 16x16 patch size")
-        print("Warning : vit-small modified to not use class tokens and classifier head is uses average pool of output sequence")
-        model = timm.create_model("vit_small_patch16_224", pretrained=False, 
-                                    num_classes=args.num_classes, img_size=args.image_size, patch_size=args.patch_size,
-                                    class_token=False, global_pool='avg', drop_rate=0.0, drop_path_rate=(0.1 if args.deit_scheme else 0.0))
-    else:
-        raise NotImplementedError(f"Model {args.model} not supported.")
-    
-    print(f"\nNumber of model parameters: {sum(p.numel() for p in model.parameters())}\n")
-
-    # Whether to use memory-efficient reversible backpropagation or vanilla backpropagation
-    # Note that in both cases, the model is reversible.
-    # For Swin, this requires iterating through the layers.
-    model.no_custom_backward = args.vanilla_bp
-    
-    return model
+from rev import AttentionSubBlock, MLPSubblock
 
 class ViT_OG(nn.Module):
     def __init__(
@@ -99,7 +22,8 @@ class ViT_OG(nn.Module):
         num_classes=10,
         enable_amp=False,
         token_mixer="attention",
-        pool_size=3
+        pool_size=3,
+        num_registers=0
     ):
         super().__init__()
 
@@ -107,6 +31,12 @@ class ViT_OG(nn.Module):
         self.n_head = n_head
         self.depth = depth
         self.patch_size = patch_size
+
+        self.num_registers = num_registers
+        self.reg_tokens = nn.Parameter(torch.zeros(1, self.num_registers, embed_dim)) if self.num_registers > 0 else None
+
+        if self.reg_tokens is not None:
+            print(f"Initialised register tokens of shape {self.reg_tokens.shape}")
 
         num_patches = (image_size[0] // self.patch_size[0]) * (
             image_size[1] // self.patch_size[1]
@@ -126,6 +56,7 @@ class ViT_OG(nn.Module):
                     token_mixer=token_mixer,
                     pool_size=pool_size,
                     patches_shape=patches_shape,
+                    num_registers=num_registers
                 )
                 for _ in range(self.depth)
             ]
@@ -137,7 +68,7 @@ class ViT_OG(nn.Module):
         )
 
         self.pos_embeddings = nn.Parameter(
-            torch.zeros(1, num_patches, self.embed_dim)
+            torch.zeros(1, num_patches + self.num_registers, self.embed_dim)
         )
         # What kind of a shit initialization is this? Could have used randn * 0.02 like how its done in timm
 
@@ -154,6 +85,11 @@ class ViT_OG(nn.Module):
         # patchification using conv and flattening
         # + abolsute positional embeddings
         x = self.patch_embed(x).flatten(2).transpose(1, 2)
+
+        if self.num_registers > 0:
+            batch_registers = self.reg_tokens.expand(x.shape[0], -1, -1)
+            x = torch.cat([batch_registers, x], dim=1)
+
         x += self.pos_embeddings
 
         # the two streams X_1 and X_2 are initialized identically with x and
@@ -179,7 +115,7 @@ class ViT_OG(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads, enable_amp,  token_mixer, pool_size, patches_shape):
+    def __init__(self, dim, num_heads, enable_amp, token_mixer, pool_size, patches_shape, num_registers):
         super().__init__()
         # F and G can be arbitrary functions, here we use
         # simple attwntion and MLP sub-blocks using vanilla attention.
@@ -190,7 +126,7 @@ class Block(nn.Module):
             print("Using attention token mixer")
         elif token_mixer == "pooling":
             self.F = PoolingFBlock(
-                dim=dim, pool_size=pool_size, patches_shape=patches_shape, enable_amp=enable_amp
+                dim=dim, pool_size=pool_size, patches_shape=patches_shape, num_registers=num_registers, enable_amp=enable_amp
             )
             print(f"Using pooling token mixer with pool_size : {pool_size}")
         elif token_mixer == "spatial_mlp":
