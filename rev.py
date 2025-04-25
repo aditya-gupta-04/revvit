@@ -243,7 +243,7 @@ class ReversibleBlock(nn.Module):
             print(f"Using pooling token mixer with pool_size : {pool_size}")
         elif token_mixer == "spatial_mlp":
             self.F = SpatialMLPFBlock(
-                dim=dim, patches_shape=patches_shape, num_registers=num_registers, enable_amp=enable_amp
+                dim=dim, patches_shape=patches_shape, enable_amp=enable_amp
             )
             print("Using spatial_mlp token mixer")
         else:
