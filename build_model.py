@@ -1,8 +1,11 @@
 from rev import *
 from fast_rev import *
 from vit import *
+# from revseg import HierarchicalRevVit, OnlyMLPRevViT
+from asymmrev import AsymmetricRevVit
 
 import timm
+import torchprofile
 
 def build_model(args):
     if args.model == "vit":
@@ -73,10 +76,56 @@ def build_model(args):
         model = timm.create_model("vit_small_patch16_224", pretrained=False, 
                                     num_classes=args.num_classes, img_size=args.image_size, patch_size=args.patch_size,
                                     class_token=False, global_pool='avg', drop_rate=0.0, drop_path_rate=(0.1 if args.deit_scheme else 0.0))
+    elif args.model == "vit-hr-small":
+        model = HierarchicalRevVit(
+            embed_dim=args.embed_dim,
+            n_head=args.n_head,
+            stages=[3, 3, 6, 3],
+            drop_path_rate=(0.1 if args.deit_scheme else 0.0),
+            patch_size=args.patch_size,
+            image_size=args.image_size,
+            num_classes=args.num_classes,
+            enable_amp=args.amp,
+            token_mixer=args.token_mixer,
+            pool_size=args.pool_size
+        )
+    elif args.model == "onlymlp-revvit":
+        model = OnlyMLPRevViT(
+            embed_dim=args.embed_dim,
+            stages=[3, 3, 6, 3],
+            drop_path_rate=(0.1 if args.deit_scheme else 0.0),
+            patch_size=args.patch_size,
+            image_size=args.image_size,
+            num_classes=args.num_classes,
+            enable_amp=args.amp,
+        )
+    elif args.model == "asymm-revvit":
+        model = AsymmetricRevVit(
+            const_dim=args.embed_dim,
+            var_dim=[64, 128, 320, 512],
+            sra_R=[8, 4, 2, 1],
+            n_head=args.n_head,
+            stages=[3, 3, 6, 3],
+            drop_path_rate=(0.1 if args.deit_scheme else 0.0),
+            patch_size=args.patch_size,  
+            image_size=args.image_size,
+            num_classes=args.num_classes,
+            enable_amp=args.amp,
+        )
     else:
         raise NotImplementedError(f"Model {args.model} not supported.")
     
     print(f"\nNumber of model parameters: {sum(p.numel() for p in model.parameters())}\n")
+
+    try:
+        from fvcore.nn import FlopCountAnalysis
+        model.training = False
+        input = torch.randn(1, 3, 224, 224)
+        flops = FlopCountAnalysis(model, input)
+        print(f"Total MACs Estimate (fvcore): {flops.total()}")
+    except:
+        print("FLOPs estimator failed")
+        pass
 
     # Whether to use memory-efficient reversible backpropagation or vanilla backpropagation
     # Note that in both cases, the model is reversible.
