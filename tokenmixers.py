@@ -40,7 +40,8 @@ class PoolingFBlock(nn.Module):
         self.enable_amp = enable_amp
 
         self.num_registers = num_registers
-        self.mha = torch.nn.MultiheadAttention(embed_dim=dim, num_heads=num_heads, batch_first=True)
+        if self.num_registers > 0:
+            self.mha = torch.nn.MultiheadAttention(embed_dim=dim, num_heads=num_heads, batch_first=True)
 
     def forward(self, x):
 
