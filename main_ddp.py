@@ -162,6 +162,10 @@ def main_worker(rank, world_size, args):
 
     scaler = GradScaler()
 
+    with open(f"expt_logs/{args.expt_name}/metadata.json", "w") as f:
+        args_dict = vars(args)
+        json.dump(args_dict, f, indent=4)
+
     for epoch in range(args.epochs):
         trainloader.sampler.set_epoch(epoch)
 
