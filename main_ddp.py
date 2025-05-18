@@ -296,7 +296,7 @@ def test(epoch, model, testloader, criterion, args, device):
 
     if (len(testloader.sampler) * args.world_size < len(testloader.dataset)):
         aux_val_dataset = torch.utils.data.Subset(testloader.dataset, range(len(testloader.sampler) * args.world_size, len(testloader.dataset)))
-        aux_testloader = torch.utils.data.DataLoader(aux_val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=True)
+        aux_testloader = torch.utils.data.DataLoader(aux_val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.world_size, pin_memory=True)
         run_validate(aux_testloader, len(testloader))
 
     progress.display_summary()

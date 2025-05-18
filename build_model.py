@@ -105,7 +105,7 @@ def build_model(args):
             var_dim=[64, 128, 320, 512],
             sra_R=[8, 4, 2, 1],
             n_head=args.n_head,
-            stages=[3, 3, 6, 3],
+            stages=[1, 1, 10, 1],
             drop_path_rate=(0.1 if args.deit_scheme else 0.0),
             patch_size=args.patch_size,  
             image_size=args.image_size,
