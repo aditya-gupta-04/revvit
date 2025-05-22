@@ -7,6 +7,7 @@ from torch.autograd import Function as Function
 # We use the standard pytorch multi-head attention module
 from torch.nn import MultiheadAttention as MHA
 import sys
+import numpy as np
 
 def drop_path(x, drop_prob: float = 0.0, training: bool = False):
     """
@@ -52,6 +53,12 @@ class AsymmetricRevVit(nn.Module):
 
         const_patches_shape = (image_size[0] // self.patch_size[0], image_size[1] // self.patch_size[1])
 
+        blk_idx_temp = 0
+        block_to_stage_indexing = {}
+        for stg_idx_temp, num_blocks in enumerate(stages):
+            for _ in range(num_blocks):
+                block_to_stage_indexing[blk_idx_temp] = stg_idx_temp
+                blk_idx_temp += 1
 
         dpr = [
             x.item() for x in torch.linspace(0, drop_path_rate, sum(stages))
@@ -73,28 +80,31 @@ class AsymmetricRevVit(nn.Module):
         assert const_patches_shape[1] % 2**(len(stages)-1) == 0
 
         self.layers = []
-        for i in range(len(stages)):
-            for _ in range(stages[i]):
-                self.layers.append(
-                    AsymmetricReversibleBlock(
-                        dim_c=self.const_dim,
-                        dim_v=var_dim[i],
-                        num_heads=self.n_head,
-                        enable_amp=enable_amp,
-                        sr_ratio=sra_R[i],
-                        token_map_pool_size=2**i,
-                        drop_path=dpr[i],
-                        const_patches_shape=const_patches_shape
-                    )
+        for i in range(sum(stages)):
+            stage_index = block_to_stage_indexing[i]
+
+            self.layers.append(
+                AsymmetricReversibleBlock(
+                    dim_c=self.const_dim,
+                    dim_v=var_dim[stage_index], # Same dim_v used for all blocks in a stage
+                    num_heads=self.n_head,
+                    enable_amp=enable_amp,
+                    sr_ratio=sra_R[stage_index], # Same sr_ratio used for all blocks in a stage
+                    token_map_pool_size=2**stage_index, # Same N_c : N_v ratio used for all blocks in a stage
+                    drop_path=dpr[i],                   # Drop path rate depends on block #, not stage #
+                    const_patches_shape=const_patches_shape,
+                    block_id=i
                 )
+            )
             
-            if i != len(stages) - 1:
+            # Stage transitions
+            if (i == np.cumsum(stages)[stage_index] - 1) and (stage_index != len(stages) - 1):
                 self.layers.append(
                     VarStreamDownSamplingBlock(
-                        input_patches_shape=(const_patches_shape[0] // 2**i, const_patches_shape[1] // 2**i),
+                        input_patches_shape=(const_patches_shape[0] // 2**stage_index, const_patches_shape[1] // 2**stage_index),
                         kernel_size=2, 
-                        dim_in=var_dim[i], 
-                        dim_out=var_dim[i+1]
+                        dim_in=var_dim[stage_index], 
+                        dim_out=var_dim[stage_index+1]
                     )
                 )
 
@@ -268,7 +278,7 @@ class AsymmetricReversibleBlock(nn.Module):
     See Section 3.3.2 in paper for details.
     """
 
-    def __init__(self, dim_c, dim_v, num_heads, enable_amp, drop_path, token_map_pool_size, sr_ratio, const_patches_shape, token_mixer="spatial_mlp"):
+    def __init__(self, dim_c, dim_v, num_heads, enable_amp, drop_path, token_map_pool_size, sr_ratio, const_patches_shape, block_id, token_mixer="spatial_mlp"):
         """
         Block is composed entirely of function F (Attention
         sub-block) and G (MLP sub-block) including layernorm.
@@ -311,6 +321,8 @@ class AsymmetricReversibleBlock(nn.Module):
         # To see usage with controlled seeds and dropout, see pyslowfast.
 
         self.seeds = {}
+        self.block_id = block_id
+        print(f"Block index : {self.block_id} | Dpr : {self.drop_path_rate}")
     
     def seed_cuda(self, key):
         """
@@ -710,17 +722,17 @@ def main():
             4,
             4,
         ),  
-        image_size=(512, 512),  
+        image_size=(224, 224),  
         num_classes=100,
     )
 
     # random input, instaintiate and fixing.
     # no need for GPU for unit test, runs fine on CPU.
-    x = torch.rand((16, 3, 512, 512))
+    x = torch.rand((1, 3, 224, 224))
     model = model
     
-    model = model.to("cuda")
-    x = x.to("cuda")
+    # model = model.to("cuda")
+    # x = x.to("cuda")
     import time
     start_time = time.time()          
 
