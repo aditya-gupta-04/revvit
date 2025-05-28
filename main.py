@@ -38,6 +38,7 @@ parser.add_argument(
 
 # Transformer options
 parser.add_argument("--model", default="vit", type=str, help="model name")
+parser.add_argument("--block_type", default="unspecified", type=str)
 parser.add_argument(
     "--embed_dim",
     default=384,

@@ -76,6 +76,7 @@ def build_model(args):
         )
     elif args.model == "asymm-revvit":
         model = AsymmetricRevVit(
+            block_type=args.block_type,
             const_dim=args.embed_dim,
             var_dim=[96, 192, 384, 768],
             sra_R=[8, 4, 2, 1],
