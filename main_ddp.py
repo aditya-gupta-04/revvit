@@ -62,6 +62,9 @@ parser.add_argument(
     "--n_head", default=6, type=int, help="number of heads in the transformer"
 )
 parser.add_argument(
+    "--stages", help="patch size in patchification"
+)
+parser.add_argument(
     "--depth", default=12, type=int, help="number of transformer blocks"
 )
 parser.add_argument(

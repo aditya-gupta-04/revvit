@@ -4,6 +4,8 @@ from vit import *
 # from revseg import HierarchicalRevVit, OnlyMLPRevViT
 from asymmrev import AsymmetricRevVit
 
+from utils import log_model_source
+
 import timm
 import torchprofile
 
@@ -27,33 +29,6 @@ def build_model(args):
             pool_size=args.pool_size,
             num_registers=args.num_registers
         )
-    # elif args.model == "swin":
-    #     model = RevSwin(
-    #         img_size=args.image_size,
-    #         patch_size=args.patch_size,
-    #         num_classes=args.num_classes,
-    #         embed_dim=args.embed_dim,
-    #         depths=[args.depth // 2, args.depth // 2],
-    #         num_heads=[args.n_head, args.n_head * 2],
-    #         window_size=4,
-    #         fast_backprop=args.pareprop,
-    #     )
-    # elif args.model == "mvit":
-    #     model = RevMViT(
-    #         img_size=args.image_size,
-    #         patch_kernel=(3, 3),
-    #         patch_stride=(2, 2),
-    #         patch_padding=(1, 1),
-    #         num_classes=args.num_classes,
-    #         embed_dim=args.embed_dim,
-    #         depth=args.depth,
-    #         num_heads=args.n_head,  # doubles every stage
-    #         last_block_indexes=[0, 2],
-    #         qkv_pool_kernel=(3, 3),
-    #         adaptive_kv_stride=2,
-    #         adaptive_window_size=16,
-    #         fast_backprop=args.pareprop,
-    #     )
     elif args.model == "vit-og":
         model = ViT_OG(
             embed_dim=args.embed_dim,
@@ -80,7 +55,7 @@ def build_model(args):
         model = HierarchicalRevVit(
             embed_dim=args.embed_dim,
             n_head=args.n_head,
-            stages=[3, 3, 6, 3],
+            stages=eval(args.stages),
             drop_path_rate=(0.1 if args.deit_scheme else 0.0),
             patch_size=args.patch_size,
             image_size=args.image_size,
@@ -92,7 +67,7 @@ def build_model(args):
     elif args.model == "onlymlp-revvit":
         model = OnlyMLPRevViT(
             embed_dim=args.embed_dim,
-            stages=[3, 3, 6, 3],
+            stages=eval(args.stages),
             drop_path_rate=(0.1 if args.deit_scheme else 0.0),
             patch_size=args.patch_size,
             image_size=args.image_size,
@@ -102,10 +77,10 @@ def build_model(args):
     elif args.model == "asymm-revvit":
         model = AsymmetricRevVit(
             const_dim=args.embed_dim,
-            var_dim=[64, 128, 320, 512],
+            var_dim=[96, 192, 384, 768],
             sra_R=[8, 4, 2, 1],
             n_head=args.n_head,
-            stages=[1, 1, 10, 1],
+            stages=eval(args.stages),
             drop_path_rate=(0.1 if args.deit_scheme else 0.0),
             patch_size=args.patch_size,  
             image_size=args.image_size,
@@ -126,6 +101,8 @@ def build_model(args):
     except:
         print("FLOPs estimator failed")
         pass
+
+    log_model_source(model, save_dir=f"expt_logs/{args.expt_name}/model_snapshot")
 
     # Whether to use memory-efficient reversible backpropagation or vanilla backpropagation
     # Note that in both cases, the model is reversible.
