@@ -405,6 +405,12 @@ random.seed(seed)
 if not os.path.exists("expt_logs"):
     os.makedirs("expt_logs")
 
+if not os.path.exists(f"expt_logs/{args.expt_name}/metadata.json"):
+    os.makedirs(f"expt_logs/{args.expt_name}", exist_ok=True)
+else:
+    print("Experiment Log with identical expt_name found, run terminated !")
+    quit()
+
 if not os.path.exists(f"expt_logs/{args.expt_name}"):
     os.makedirs(f"expt_logs/{args.expt_name}")
     with open(f'expt_logs/{args.expt_name}/{args.expt_name}_logs.csv', 'a', newline='') as f:

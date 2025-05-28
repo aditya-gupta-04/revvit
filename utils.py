@@ -273,3 +273,15 @@ def log_model_source(model, save_dir="logs/model_snapshot", name="model"):
         f.write(str(model))
 
     print(f"Logged {name} in {save_dir}")
+
+
+def save_macs_params_count(param_count, macs, save_dir):
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    metrics_path = os.path.join(save_dir, "model_metrics.txt")
+    with open(metrics_path, "w") as f:
+        f.write(f"Number of model parameters: {param_count}\n")
+
+    with open(metrics_path, "a") as f:
+        f.write(f"Total MACs Estimate (fvcore): {macs}\n")
