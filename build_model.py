@@ -103,7 +103,7 @@ def build_model(args):
         pass
 
     log_model_source(model, save_dir=f"expt_logs/{args.expt_name}/model_snapshot")
-    save_macs_params_count(sum(p.numel() for p in model.parameters()), flops, f"expt_logs/{args.expt_name}")
+    save_macs_params_count(sum(p.numel() for p in model.parameters()), flops.total(), f"expt_logs/{args.expt_name}")
 
     # Whether to use memory-efficient reversible backpropagation or vanilla backpropagation
     # Note that in both cases, the model is reversible.
