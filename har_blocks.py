@@ -783,8 +783,8 @@ class SwinDWMLPFBlockC2V(nn.Module):
         super().__init__()
         self.norm = nn.LayerNorm(dim_c, eps=1e-6, elementwise_affine=True)
 
-        self.lin = nn.Linear(dim_c, dim_v)
-        self.act = nn.GELU()
+        self.proj = nn.Linear(dim_c, dim_v)
+        self.act = nn.ReLU()
 
         self.dim_c, self.dim_v = dim_c, dim_v
         self.patches_shape = patches_shape
@@ -826,12 +826,12 @@ class SwinDWMLPFBlockC2V(nn.Module):
 
         with torch.cuda.amp.autocast(enabled=self.enable_amp):
             H, W = self.patches_shape
-            C = self.dim_v
+            C = self.dim_c
             B, _, _ = x.shape
 
             x = self.norm(x)
 
-            x = self.act(self.lin(x))
+            # x = self.act(self.lin(x))
 
             x = x.view(B, H, W, C)
 
@@ -869,6 +869,7 @@ class SwinDWMLPFBlockC2V(nn.Module):
                 x = shifted_x
             x = x.view(B, self.N_v, C)
 
+            x = self.proj(self.act(x))
             return x
         
 
