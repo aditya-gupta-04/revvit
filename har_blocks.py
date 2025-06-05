@@ -258,7 +258,7 @@ class AsymmetricSwinReversibleBlock(nn.Module):
             enable_amp=enable_amp,
         )
 
-        self.G = MLPSubblockV2C(
+        self.G = FFNConvTransposeSubblockV2C(
             dim_c=dim_c,
             dim_v=dim_v,
             const_patches_shape=const_patches_shape,
@@ -920,7 +920,7 @@ class FFNConvTransposeSubblockV2C(nn.Module):
             x = self.norm(x)
 
             B, N_v, d_v = x.shape
-            x = self.fc2(self.act(self.fc1(x))) # FFN
+            x = torch.nn.functional.relu(self.fc2(self.act(self.fc1(x)))) # FFN
 
             x = x.transpose(1,2).reshape(B, self.dim_v, self.patches_shape[0], self.patches_shape[1])
             x = self.convtranspose(x)

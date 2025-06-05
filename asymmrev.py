@@ -688,6 +688,8 @@ class TokenMixerFBlockC2V(nn.Module):
             x = x.reshape(B, self.dim_c, self.patches_shape[0], self.patches_shape[1])
             x = self.conv(x).reshape(B, self.dim_v, self.N_v)
 
+            x = torch.nn.functional.relu(x) # With this SMLP scores 76.16 ImageNet-100
+
             x = self.token_mixer(x).transpose(1, 2)
 
             return x
