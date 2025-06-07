@@ -4,3 +4,5 @@ numpy
 timm
 argparse
 pandas
+fvcore
+torchprofile
