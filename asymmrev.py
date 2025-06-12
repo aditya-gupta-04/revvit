@@ -139,7 +139,7 @@ class AsymmetricRevVit(nn.Module):
                 self.layers.append(
                     VarStreamDownSamplingBlock(
                         input_patches_shape=(const_patches_shape[0] // 2**stage_index, const_patches_shape[1] // 2**stage_index),
-                        kernel_size=2, 
+                        pool_size=2, 
                         dim_in=var_dim[stage_index], 
                         dim_out=var_dim[stage_index+1]
                     )
@@ -700,20 +700,20 @@ class VarStreamDownSamplingBlock(nn.Module):
     Downsamples the var stream using avg pool
     """
 
-    def __init__(self, input_patches_shape, kernel_size, dim_in, dim_out):
+    def __init__(self, input_patches_shape, pool_size, dim_in, dim_out):
         """
         Block is composed entirely of function F (Attention
         sub-block) and G (MLP sub-block) including layernorm.
         """
         super().__init__()
 
-        assert input_patches_shape[0] % kernel_size == 0
-        assert input_patches_shape[1] % kernel_size == 0
+        assert input_patches_shape[0] % pool_size == 0
+        assert input_patches_shape[1] % pool_size == 0
 
 
         self.input_patches_shape = input_patches_shape  
         self.dim_in, self.dim_out = dim_in, dim_out
-        self.conv = nn.Conv2d(dim_in, dim_out, kernel_size=kernel_size, stride=kernel_size)    
+        self.conv = nn.Conv2d(dim_in, dim_out, kernel_size=3, stride=pool_size, padding=3//2)    
 
     def forward(self, X_1, X_2):
 
@@ -735,12 +735,12 @@ def main():
     """
 
     model = AsymmetricRevVit(
-        block_type="swin-dw-mlp",
+        block_type="smlp",
         const_dim=96,
         var_dim=[96, 192, 384, 768],
         sra_R=[8, 4, 2, 1],
         n_head=1,
-        stages=[2, 2, 18, 2],
+        stages=[1, 2, 11, 2],
         drop_path_rate=0.1,
         patch_size=(
             4,
