@@ -535,9 +535,9 @@ class MLPSubblockV2C(nn.Module):
 
         self.norm = nn.LayerNorm(dim_v)
 
-        self.fc1 = nn.Linear(dim_v, dim_c)
+        self.fc1 = nn.Linear(dim_v, 4*dim_c)
         self.act = nn.GELU()
-        self.convtranspose = nn.ConvTranspose2d(in_channels=dim_c, out_channels=dim_c, 
+        self.convtranspose = nn.ConvTranspose2d(in_channels=4*dim_c, out_channels=dim_c, 
                                                 kernel_size=token_pool_size, stride=token_pool_size, groups=1)
 
         self.enable_amp = enable_amp
@@ -553,7 +553,7 @@ class MLPSubblockV2C(nn.Module):
             x = self.norm(x)
             B, N, d_v = x.shape
             x = self.act(self.fc1(x))
-            x = x.transpose(1,2).reshape(B, self.dim_c, self.patches_shape[0], self.patches_shape[1])
+            x = x.transpose(1,2).reshape(B, 4*self.dim_c, self.patches_shape[0], self.patches_shape[1])
 
             x = self.convtranspose(x)
             x = x.reshape(B, self.dim_c, -1).transpose(1, 2)
@@ -688,7 +688,7 @@ class TokenMixerFBlockC2V(nn.Module):
             x = x.reshape(B, self.dim_c, self.patches_shape[0], self.patches_shape[1])
             x = self.conv(x).reshape(B, self.dim_v, self.N_v)
 
-            x = torch.nn.functional.relu(x) # With this SMLP scores 76.16 ImageNet-100
+            x = torch.nn.functional.relu(x) # important
 
             x = self.token_mixer(x).transpose(1, 2)
 
